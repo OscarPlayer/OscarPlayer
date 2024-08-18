@@ -1,10 +1,4 @@
-- 👋 Hi, I’m @OscarPlayer
-- 👀 I’m interested in programation
-- 🌱 I’m currently learning python
-- 💞️ I’m looking to collaborate on programs
-- 📫 How to reach me ...?
-- 😄 Pronouns: Humm, maybe just Oscar
-- ⚡ Fun fact: I like play the piano?
+OK
 
 <!---
 OscarPlayer/OscarPlayer is a ✨ special ✨ repository because its `README.md` (this file) appears on your GitHub profile.
