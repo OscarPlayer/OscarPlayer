@@ -18,7 +18,7 @@ janela.title('Minecraft Launcher - Better Launcher')
 janela.resizable(False, False)  # Para que o tamanho não possa mudar
 
 user_window = os.environ["USERNAME"]
-minecraft_directori = f"C:/Users/{user_window}/AppData/Roaming/.minecraftLauncher"
+minecraft_directori = f"C:/Users/{user_window}/AppData/Roaming/.betterlauncher"
 
 # Carregar e redimensionar a imagem de fundo
 fundo_imagem = Image.open("D:/Launcher/Fundo.png")
