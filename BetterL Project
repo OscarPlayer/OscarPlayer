@@ -1,0 +1,245 @@
+import os
+import uuid
+import json
+import subprocess
+import minecraft_launcher_lib
+import customtkinter as ctk
+from tkinter import messagebox, filedialog
+
+# ==============================
+# Appearance Settings
+# ==============================
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+# ==============================
+# Config File
+# ==============================
+
+CONFIG_FILE = "config.json"
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    return {"minecraft_directory": None}
+
+def save_config(data):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f)
+
+config = load_config()
+minecraft_directory = config["minecraft_directory"]
+
+# ==============================
+# Main Window
+# ==============================
+
+window = ctk.CTk()
+window.geometry("500x550")
+window.title("Minecraft Launcher")
+window.resizable(False, False)
+
+# ==============================
+# Folder Selection System
+# ==============================
+
+selected_folder_text = ctk.StringVar()
+
+if minecraft_directory:
+    selected_folder_text.set(minecraft_directory)
+else:
+    selected_folder_text.set("No folder selected")
+
+def select_folder():
+    global minecraft_directory
+
+    folder = filedialog.askdirectory()
+
+    if folder:
+        minecraft_directory = folder
+        selected_folder_text.set(folder)
+        config["minecraft_directory"] = folder
+        save_config(config)
+
+# ==============================
+# Get Installed Versions
+# ==============================
+
+def get_versions():
+    if not minecraft_directory:
+        return ["No versions installed"]
+
+    versions_data = minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory)
+    versions = [v["id"] for v in versions_data]
+
+    return versions if versions else ["No versions installed"]
+
+installed_versions = get_versions()
+selected_version = ctk.StringVar(value=installed_versions[0])
+
+# ==============================
+# Widgets
+# ==============================
+
+label_folder = ctk.CTkLabel(window, textvariable=selected_folder_text)
+btn_select_folder = ctk.CTkButton(window, text="Select Folder", command=select_folder)
+
+label_username = ctk.CTkLabel(window, text="Username:")
+entry_username = ctk.CTkEntry(window, placeholder_text="Enter your username")
+
+label_ram = ctk.CTkLabel(window, text="RAM to allocate (GB):")
+entry_ram = ctk.CTkEntry(window, placeholder_text="Enter RAM amount")
+
+version_menu = ctk.CTkOptionMenu(window, variable=selected_version, values=installed_versions)
+
+btn_launch = ctk.CTkButton(window, text="Launch")
+btn_install_vanilla = ctk.CTkButton(window, text="Install Version")
+btn_install_forge = ctk.CTkButton(window, text="Install Forge")
+
+# ==============================
+# Install Functions
+# ==============================
+
+def check_folder_selected():
+    if not minecraft_directory:
+        messagebox.showerror(
+            "Error",
+            "You did not select any folder to download the files."
+        )
+        return False
+    return True
+
+def install_minecraft_version():
+    if not check_folder_selected():
+        return
+
+    version = entry_version_input.get()
+
+    if not version:
+        messagebox.showerror("Error", "Enter a version!")
+        return
+
+    minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_directory)
+    messagebox.showinfo("Success", f"Version {version} installed!")
+
+def install_forge_version():
+    if not check_folder_selected():
+        return
+
+    version = entry_version_input.get()
+
+    if not version:
+        messagebox.showerror("Error", "Enter a version!")
+        return
+
+    forge_version = minecraft_launcher_lib.forge.find_forge_version(version)
+
+    if not forge_version:
+        messagebox.showerror("Error", "Forge version not found for this Minecraft version!")
+        return
+
+    minecraft_launcher_lib.forge.install_forge_version(forge_version, minecraft_directory)
+    messagebox.showinfo("Success", "Forge installed!")
+
+# ==============================
+# Launch Function
+# ==============================
+
+def launch_minecraft():
+    if not check_folder_selected():
+        return
+
+    username = entry_username.get()
+    ram = entry_ram.get()
+    version = selected_version.get()
+
+    if version == "No versions installed":
+        messagebox.showerror("Error", "No version installed!")
+        return
+
+    if not username:
+        messagebox.showerror("Error", "Enter your username!")
+        return
+
+    if not ram.isdigit():
+        messagebox.showerror("Error", "RAM must be a number!")
+        return
+
+    ram_int = int(ram)
+
+    if ram_int < 1 or ram_int > 32:
+        messagebox.showerror("Error", "RAM must be between 1 and 32 GB!")
+        return
+
+    options = {
+        "username": username,
+        "uuid": str(uuid.uuid4()),
+        "token": "",
+        "jvmArguments": [
+            f"-Xmx{ram_int}G",
+            f"-Xms{ram_int}G"
+        ],
+        "launcherVersion": "1.0"
+    }
+
+    window.destroy()
+
+    minecraft_command = minecraft_launcher_lib.command.get_minecraft_command(
+        version,
+        minecraft_directory,
+        options
+    )
+
+    subprocess.run(minecraft_command)
+
+# ==============================
+# Install Window
+# ==============================
+
+def open_install_window(mode="vanilla"):
+    if not check_folder_selected():
+        return
+
+    install_window = ctk.CTkToplevel(window)
+    install_window.geometry("300x150")
+    install_window.title("Install Version")
+    install_window.grab_set()
+
+    global entry_version_input
+    entry_version_input = ctk.CTkEntry(install_window, placeholder_text="Enter version")
+    entry_version_input.pack(pady=10)
+
+    if mode == "vanilla":
+        btn = ctk.CTkButton(install_window, text="Install", command=install_minecraft_version)
+    else:
+        btn = ctk.CTkButton(install_window, text="Install", command=install_forge_version)
+
+    btn.pack(pady=10)
+
+# ==============================
+# Layout
+# ==============================
+
+label_folder.place(x=20, y=10)
+btn_select_folder.place(x=20, y=40)
+
+label_username.place(x=20, y=90)
+entry_username.place(x=20, y=120)
+
+label_ram.place(x=20, y=170)
+entry_ram.place(x=20, y=200)
+
+version_menu.place(x=20, y=500)
+
+btn_launch.configure(command=launch_minecraft)
+btn_launch.place(x=200, y=500)
+
+btn_install_vanilla.configure(command=lambda: open_install_window("vanilla"))
+btn_install_vanilla.place(x=300, y=20)
+
+btn_install_forge.configure(command=lambda: open_install_window("forge"))
+btn_install_forge.place(x=300, y=70)
+
+window.mainloop()
