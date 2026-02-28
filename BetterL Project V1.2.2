@@ -1,0 +1,249 @@
+import os
+import uuid
+import json
+import subprocess
+import minecraft_launcher_lib
+import shutil
+import customtkinter as ctk
+from tkinter import messagebox, filedialog
+
+# ==============================
+# Appearance Settings
+# ==============================
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+# ==============================
+# Config File
+# ==============================
+CONFIG_FILE = "config.json"
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    return {"minecraft_directory": None}
+
+def save_config(data):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f)
+
+config = load_config()
+minecraft_directory = config["minecraft_directory"]
+
+# ==============================
+# Main Window
+# ==============================
+window = ctk.CTk()
+window.geometry("500x550")
+window.title("Minecraft Launcher")
+window.resizable(False, False)
+
+# ==============================
+# Folder Selection System
+# ==============================
+selected_folder_text = ctk.StringVar(value=minecraft_directory or "No folder selected")
+
+def select_folder():
+    global minecraft_directory
+    folder = filedialog.askdirectory()
+    if folder:
+        minecraft_directory = folder
+        selected_folder_text.set(folder)
+        config["minecraft_directory"] = folder
+        save_config(config)
+        refresh_versions()
+
+def check_folder_selected():
+    if not minecraft_directory:
+        messagebox.showerror("Error", "You did not select any folder to download the files.")
+        return False
+    return True
+
+# ==============================
+# Installed Versions
+# ==============================
+def get_versions():
+    if not minecraft_directory:
+        return ["No versions installed"]
+    versions_data = minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory)
+    versions = [v["id"] for v in versions_data]
+    return list(dict.fromkeys(versions)) or ["No versions installed"]
+
+installed_versions = get_versions()
+selected_version = ctk.StringVar(value=installed_versions[0])
+version_menu = ctk.CTkOptionMenu(window, variable=selected_version, values=installed_versions)
+
+def refresh_versions():
+    global installed_versions
+    installed_versions = get_versions()
+    version_menu.configure(values=installed_versions)
+    if installed_versions:
+        selected_version.set(installed_versions[0])
+
+# ==============================
+# Widgets
+# ==============================
+label_folder = ctk.CTkLabel(window, textvariable=selected_folder_text)
+btn_select_folder = ctk.CTkButton(window, text="Select Folder", command=select_folder, fg_color="#6c757d", hover_color="#5a6268")
+label_username = ctk.CTkLabel(window, text="Username:")
+entry_username = ctk.CTkEntry(window, placeholder_text="Enter your username")
+label_ram = ctk.CTkLabel(window, text="RAM to allocate (GB):")
+entry_ram = ctk.CTkEntry(window, placeholder_text="Enter RAM amount")
+btn_launch = ctk.CTkButton(window, text="Launch", fg_color="#2e7d32", hover_color="#1b5e20")
+btn_install_vanilla = ctk.CTkButton(window, text="Install Version", fg_color="#d32f2f", hover_color="#b71c1c")
+btn_install_forge = ctk.CTkButton(window, text="Install Forge", fg_color="#f57c00", hover_color="#e65100")
+
+# ==============================
+# Install Vanilla
+# ==============================
+def install_minecraft_version():
+    if not check_folder_selected(): return
+    version = entry_version_input.get()
+    if not version:
+        messagebox.showerror("Error", "Enter a version!")
+        return
+    try:
+        minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_directory)
+        refresh_versions()
+        messagebox.showinfo("Success", f"Version {version} installed successfully!")
+    except Exception as e:
+        messagebox.showerror("Installation Error", f"Failed to install {version}.\n{e}")
+
+# ==============================
+# Install Forge
+# ==============================
+def install_forge_version():
+    if not check_folder_selected(): return
+    version = entry_version_input.get()
+    if not version:
+        messagebox.showerror("Error", "Enter a version!")
+        return
+    if version not in get_versions():
+        messagebox.showerror("Error", f"Vanilla version {version} not installed.")
+        return
+    try:
+        forge_version = minecraft_launcher_lib.forge.find_forge_version(version)
+        if not forge_version:
+            messagebox.showerror("Error", "Forge version not found for this Minecraft version!")
+            return
+        minecraft_launcher_lib.forge.install_forge_version(forge_version, minecraft_directory)
+
+        # Fix legacy structure
+        versions_path = os.path.join(minecraft_directory, "versions")
+        forge_source, forge_target = None, None
+        for folder in os.listdir(versions_path):
+            full_path = os.path.join(versions_path, folder)
+            if not os.path.isdir(full_path): continue
+            if folder.startswith("forge "): forge_source = full_path
+            elif "forge" in folder: forge_target = full_path
+        if forge_source and forge_target:
+            target_name = os.path.basename(forge_target)
+            expected_json = os.path.join(forge_target, f"{target_name}.json")
+            if not os.path.exists(expected_json):
+                for file in os.listdir(forge_source):
+                    if file.endswith(".json"):
+                        shutil.copy(os.path.join(forge_source, file), expected_json)
+        refresh_versions()
+        messagebox.showinfo("Success", f"Forge for {version} installed successfully!")
+    except Exception as e:
+        print(e)
+        messagebox.showerror("Installation Error", f"Failed to install Forge.\n{e}")
+
+# ==============================
+# Launch Minecraft
+# ==============================
+def launch_minecraft():
+    if not check_folder_selected(): return
+    username = entry_username.get()
+    ram = entry_ram.get()
+    version = selected_version.get()
+    if version == "No versions installed":
+        messagebox.showerror("Error", "No version installed!")
+        return
+    version_path = os.path.join(minecraft_directory, "versions", version, f"{version}.json")
+    if not os.path.exists(version_path):
+        messagebox.showerror("Error", "Version corrupted or incomplete. Reinstall.")
+        return
+    if not username or not ram.isdigit():
+        messagebox.showerror("Error", "Enter valid username and RAM!")
+        return
+    ram_int = int(ram)
+    if ram_int < 1 or ram_int > 32:
+        messagebox.showerror("Error", "RAM must be between 1 and 32 GB!")
+        return
+    options = {"username": username, "uuid": str(uuid.uuid4()), "token": "", "jvmArguments": [f"-Xmx{ram_int}G", f"-Xms{ram_int}G"], "launcherVersion": "1.0"}
+    window.destroy()
+    subprocess.run(minecraft_launcher_lib.command.get_minecraft_command(version, minecraft_directory, options))
+
+# ==============================
+# Install Window
+# ==============================
+def open_install_window(mode="vanilla"):
+    if not check_folder_selected(): return
+    install_window = ctk.CTkToplevel(window)
+    install_window.geometry("300x150")
+    install_window.title("Install Version")
+    install_window.grab_set()
+    global entry_version_input
+    entry_version_input = ctk.CTkEntry(install_window, placeholder_text="Enter version")
+    entry_version_input.pack(pady=10)
+    btn = ctk.CTkButton(install_window, text="Install", command=install_minecraft_version if mode=="vanilla" else install_forge_version)
+    btn.pack(pady=10)
+
+    if mode == "vanilla":
+        info_text.set(
+            "To install a version, insert a released Minecraft version "
+            "(e.g. 1.8.9, 1.20.4).\n\n"
+            "You must select a folder before installing."
+        )
+    else:
+        info_text.set(
+            "Forge allows you to use mods.\n\n"
+            "To install Forge:\n"
+            "1. Install the vanilla version first.\n"
+            "2. Then install Forge for that version.\n"
+            "Obs: When installing Forge, you need to insert the vanilla version of Minecraft\n"
+            "This is because the launcher installs the latest version of Forge for the vanilla version.\n"
+        )
+
+# ==============================
+# Help / Info Text
+# ==============================
+info_text = ctk.StringVar()
+
+label_info = ctk.CTkLabel(
+    window,
+    textvariable=info_text,
+    wraplength=460,
+    justify="left"
+)
+
+info_text.set(
+    "Hello, welcome to Better Launcher!\n\n"
+    "This is a small launcher designed so you can play Minecraft "
+    "with your friends on any computer and any version.\n\n"
+    "Select a folder, enter your username and RAM amount, "
+    "then choose a version and click Launch."
+)
+
+# ==============================
+# Layout
+# ==============================
+label_folder.place(x=20, y=10)
+btn_select_folder.place(x=20, y=40)
+label_username.place(x=20, y=90)
+entry_username.place(x=20, y=120)
+label_ram.place(x=20, y=170)
+entry_ram.place(x=20, y=200)
+label_info.place(x=20, y=250)
+version_menu.place(x=20, y=500)
+btn_launch.configure(command=launch_minecraft)
+btn_launch.place(x=200, y=500)
+btn_install_vanilla.configure(command=lambda: open_install_window("vanilla"))
+btn_install_vanilla.place(x=300, y=20)
+btn_install_forge.configure(command=lambda: open_install_window("forge"))
+btn_install_forge.place(x=300, y=70)
+
+refresh_versions()
+window.mainloop()
