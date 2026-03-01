@@ -1,0 +1,255 @@
+import os
+import uuid
+import json
+import subprocess
+import minecraft_launcher_lib
+import threading
+import customtkinter as ctk
+from tkinter import messagebox, filedialog
+
+# ================= Appearance =================
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+CONFIG_FILE = "config.json"
+
+# ================= Config =================
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "minecraft_directory": None,
+        "ram": None
+    }
+
+def save_config(data):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f)
+
+config = load_config()
+if "ram" not in config:
+    config["ram"] = None
+    save_config(config)
+minecraft_directory = config["minecraft_directory"]
+
+# ================= Window =================
+window = ctk.CTk()
+window.geometry("520x580")
+window.title("Better Launcher")
+window.resizable(False, False)
+
+# ================= Variables =================
+selected_folder_text = ctk.StringVar(value=minecraft_directory or "No folder selected")
+
+def get_versions():
+    if not minecraft_directory:
+        return ["No versions installed"]
+    versions_data = minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory)
+    versions = [v["id"] for v in versions_data]
+    return list(dict.fromkeys(versions)) or ["No versions installed"]
+
+installed_versions = get_versions()
+selected_version = ctk.StringVar(value=installed_versions[0])
+
+# ================= Functions =================
+def select_folder():
+    global minecraft_directory
+    folder = filedialog.askdirectory()
+    if folder:
+        minecraft_directory = folder
+        selected_folder_text.set(folder)
+        config["minecraft_directory"] = folder
+        save_config(config)
+        refresh_versions()
+
+def check_folder_selected():
+    if not minecraft_directory:
+        messagebox.showerror("Error", "Select a folder first.")
+        return False
+    return True
+
+def refresh_versions():
+    global installed_versions
+    installed_versions = get_versions()
+    version_menu.configure(values=installed_versions)
+    selected_version.set(installed_versions[0])
+
+def launch_minecraft():
+    if not check_folder_selected():
+        return
+
+    username = entry_username.get()
+    ram = entry_ram.get()
+    version = selected_version.get()
+
+    if version == "No versions installed":
+        messagebox.showerror("Error", "No version installed!")
+        return
+
+    if not username or not ram.isdigit():
+        messagebox.showerror("Error", "Enter valid username and RAM!")
+        return
+
+    config["ram"] = int(ram)
+    save_config(config)
+
+    ram_int = int(ram)
+
+    options = {
+        "username": username,
+        "uuid": str(uuid.uuid4()),
+        "token": "",
+        "jvmArguments": [f"-Xmx{ram_int}G", f"-Xms{ram_int}G"],
+    }
+
+    window.destroy()
+    subprocess.run(
+        minecraft_launcher_lib.command.get_minecraft_command(
+            version, minecraft_directory, options
+        )
+    )
+
+def open_install_window():
+    if not check_folder_selected():
+        return
+
+    install_window = ctk.CTkToplevel(window)
+    install_window.geometry("300x150")
+    install_window.title("Install Version")
+    install_window.grab_set()
+
+    global entry_version_input
+    entry_version_input = ctk.CTkEntry(install_window, placeholder_text="Enter version")
+    entry_version_input.pack(pady=10)
+
+    ctk.CTkButton(install_window, text="Install", command=install_minecraft_version).pack(pady=10)
+
+def install_minecraft_version():
+    version = entry_version_input.get().strip()
+    if not version:
+        messagebox.showerror("Error", "Enter a version!")
+        return
+
+    progress_bar.set(0)
+    progress_label.configure(text="0%")
+
+    max_value = {"value": 1}
+
+    def set_max(value):
+        max_value["value"] = value
+
+    def set_progress(value):
+        if max_value["value"] == 0:
+            return
+        percent = value / max_value["value"]
+        percent = max(0, min(1, percent))
+        window.after(0, lambda: progress_bar.set(percent))
+        window.after(0, lambda: progress_label.configure(text=f"{int(percent*100)}%"))
+
+    def thread():
+        try:
+            options = {
+                "setStatus": print,
+                "setProgress": set_progress,
+                "setMax": set_max
+            }
+
+            minecraft_launcher_lib.install.install_minecraft_version(
+                version,
+                minecraft_directory,
+                options
+            )
+
+            window.after(0, refresh_versions)
+            window.after(0, lambda: messagebox.showinfo("Success", "Installed!"))
+
+        except Exception as e:
+            window.after(0, lambda: messagebox.showerror("Error", str(e)))
+
+    threading.Thread(target=thread, daemon=True).start()
+
+def install_forge():
+    if not check_folder_selected():
+        return
+
+    version = selected_version.get()
+    if version == "No versions installed":
+        messagebox.showerror("Error", "Install vanilla first.")
+        return
+
+    try:
+        forge_version = minecraft_launcher_lib.forge.find_forge_version(version)
+        minecraft_launcher_lib.forge.install_forge_version(forge_version, minecraft_directory)
+        refresh_versions()
+        messagebox.showinfo("Success", "Forge installed!")
+
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+# ================= UI =================
+tabview = ctk.CTkTabview(window, width=500, height=550)
+tabview.pack(pady=10)
+
+tab_home = tabview.add("Home")
+tab_settings = tabview.add("Settings")
+tab_versions = tabview.add("Versions")
+tab_forge = tabview.add("Forge")
+
+# ---------- HOME ----------
+ctk.CTkLabel(tab_home, text="Better Launcher", font=("Arial", 20)).pack(pady=10)
+
+welcome_text = (
+    "Welcome to Better Launcher!\n\n"
+    "This launcher allows you to play Minecraft\n"
+    "with any version on any computer.\n\n"
+    "1. Go to Settings and select your folder.\n"
+    "2. Enter your username.\n"
+    "3. Choose a version.\n"
+    "4. Click Launch."
+)
+
+ctk.CTkLabel(tab_home, text=welcome_text, justify="left", wraplength=440).pack(pady=10)
+
+ctk.CTkLabel(tab_home, text="Username:").pack(pady=5)
+entry_username = ctk.CTkEntry(tab_home)
+entry_username.pack(pady=5)
+
+version_menu = ctk.CTkOptionMenu(tab_home, variable=selected_version, values=installed_versions)
+version_menu.pack(pady=15)
+
+ctk.CTkButton(tab_home, text="Launch", command=launch_minecraft, fg_color="#2e7d32").pack(pady=20)
+
+# ---------- SETTINGS ----------
+ctk.CTkLabel(tab_settings, text="Settings", font=("Arial", 18)).pack(pady=15)
+
+ctk.CTkLabel(tab_settings, text="Minecraft Folder:").pack(pady=5)
+ctk.CTkLabel(tab_settings, textvariable=selected_folder_text, wraplength=400).pack(pady=5)
+ctk.CTkButton(tab_settings, text="Select Folder", command=select_folder).pack(pady=10)
+
+ctk.CTkLabel(tab_settings, text="RAM (GB):").pack(pady=5)
+entry_ram = ctk.CTkEntry(tab_settings)
+entry_ram.pack(pady=5)
+if config["ram"]:
+    entry_ram.insert(0, str(config["ram"]))
+else:
+    entry_ram.insert(0, "4")
+
+# ---------- VERSIONS ----------
+ctk.CTkLabel(tab_versions, text="Install a version (example: 1.8.9)").pack(pady=10)
+
+progress_bar = ctk.CTkProgressBar(tab_versions, width=350)
+progress_bar.pack(pady=10)
+progress_bar.set(0)
+
+progress_label = ctk.CTkLabel(tab_versions, text="0%")
+progress_label.pack()
+
+ctk.CTkButton(tab_versions, text="Install Version", command=open_install_window).pack(pady=20)
+
+# ---------- FORGE ----------
+ctk.CTkLabel(tab_forge, text="Install Forge (vanilla must be installed)").pack(pady=10)
+ctk.CTkButton(tab_forge, text="Install Forge", command=install_forge).pack(pady=20)
+
+refresh_versions()
+window.mainloop()
