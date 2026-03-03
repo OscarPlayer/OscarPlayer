@@ -1,0 +1,135 @@
+import minecraft_launcher_lib
+import os
+import subprocess
+import customtkinter as ctk
+from tkinter import messagebox
+
+# Style configuration
+ctk.set_appearance_mode("dark")  # Dark mode
+ctk.set_default_color_theme("blue")  # Color theme
+
+# Main window configuration
+window = ctk.CTk()
+window.geometry('500x500')  # Window size
+window.title('Minecraft Launcher')
+window.resizable(False, False)  # Disable resizing
+
+user_name = os.environ["USERNAME"]
+minecraft_directory = f"C:/Users/{user_name}/AppData/Roaming/.minecraftLauncher"
+
+# Widget creation
+bt_run_minecraft = ctk.CTkButton(window, text='Start', text_color="white", fg_color="#3b82f6")
+bt_install_versions = ctk.CTkButton(window, text='Install Versions', text_color="white", fg_color="#10b981")
+bt_install_forge = ctk.CTkButton(window, text='Install Forge', text_color="white", fg_color="#ef4444")
+
+label_username = ctk.CTkLabel(window, text='Your name:', text_color="white", font=("Arial", 12))
+label_ram = ctk.CTkLabel(window, text='RAM to use (GB):', text_color="white", font=("Arial", 12))
+
+entry_username = ctk.CTkEntry(window, placeholder_text="Enter your name")
+entry_ram = ctk.CTkEntry(window, placeholder_text="Enter RAM amount")
+
+# Get installed versions and show them in a dropdown menu
+installed_versions = minecraft_launcher_lib.utils.get_installed_versions(minecraft_directory)
+installed_versions_list = [version['id'] for version in installed_versions]
+
+if len(installed_versions_list) != 0:
+    selected_version = ctk.StringVar(value=installed_versions_list[0])
+else:
+    selected_version = ctk.StringVar(value='no versions installed')
+    installed_versions_list.append('no versions installed')
+
+versions_dropdown_menu = ctk.CTkOptionMenu(window, variable=selected_version, values=installed_versions_list)
+versions_dropdown_menu.configure()
+
+# Function definitions
+def install_minecraft():
+    version = entry_versions.get()
+    if version:
+        minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_directory)
+        print(f'Version {version} has been installed')
+        messagebox.showinfo("Success", f'Version {version} has been installed')
+    else:
+        messagebox.showerror("Error", "No version entered")
+
+def install_forge():
+    version = entry_versions.get()
+    forge = minecraft_launcher_lib.forge.find_forge_version(version)
+    if forge:
+        minecraft_launcher_lib.forge.install_forge_version(forge, minecraft_directory)
+        print('Forge installed')
+        messagebox.showinfo("Success", 'Forge installed')
+    else:
+        messagebox.showerror("Error", "No Forge version found for this Minecraft version")
+
+def run_minecraft():
+    minecraft_user = entry_username.get()
+    ram = entry_ram.get()
+    
+    if not minecraft_user:
+        messagebox.showerror("Error", "Please enter your name")
+        return
+    if not ram:
+        messagebox.showerror("Error", "Please enter the amount of RAM to use")
+        return
+
+    version = selected_version.get()
+
+    options = {
+        'username': minecraft_user,
+        'uuid': '',
+        'token': '',
+        'jvmArguments': [f"-Xmx{ram}G", f"-Xms{ram}G"],
+        'launcherVersion': "0.0.2"
+    }
+
+    window.destroy()
+    minecraft_command = minecraft_launcher_lib.command.get_minecraft_command(version, minecraft_directory, options)
+    subprocess.run(minecraft_command)
+
+def install_normal_versions():
+    versions_window = ctk.CTkToplevel(window)
+    versions_window.geometry('300x150')
+    versions_window.title('Install Version')
+    versions_window.grab_set()  # Keep on top
+
+    global entry_versions
+    entry_versions = ctk.CTkEntry(versions_window, placeholder_text="Enter version")
+    entry_versions.pack(pady=10)
+
+    bt_install_version = ctk.CTkButton(versions_window, command=install_minecraft, text='Install')
+    bt_install_version.pack(pady=10)
+
+def install_forge_versions():
+    versions_window = ctk.CTkToplevel(window)
+    versions_window.geometry('300x150')
+    versions_window.title('Install Forge')
+    versions_window.grab_set()  # Keep on top
+
+    global entry_versions
+    entry_versions = ctk.CTkEntry(versions_window, placeholder_text="Enter version")
+    entry_versions.pack(pady=10)
+
+    bt_install_version = ctk.CTkButton(versions_window, command=install_forge, text='Install')
+    bt_install_version.pack(pady=10)
+
+# Menu configuration
+def menu():
+    bt_install_versions.configure(command=install_normal_versions)
+    bt_install_versions.place(x=300, y=20)
+
+    bt_install_forge.configure(command=install_forge_versions)
+    bt_install_forge.place(x=300, y=70)
+
+    label_username.place(x=20, y=20)
+    entry_username.place(x=20, y=50)
+
+    label_ram.place(x=20, y=100)
+    entry_ram.place(x=20, y=130)
+
+    bt_run_minecraft.configure(command=run_minecraft)
+    bt_run_minecraft.place(x=200, y=450)
+    versions_dropdown_menu.place(x=20, y=450)
+
+    window.mainloop()
+
+menu()
